@@ -24,7 +24,7 @@ from keras.preprocessing.text import Tokenizer
 
 
 mypath='G:\\Mi unidad\\Investigación\\2021\\ML\\Nueva versión\\'
-muestra12=r'G:/Mi unidad/Investigación/2019/ML/Articulo cuadernos/200610 Rexamen muestra.xlsx'
+muestra12=r'200610 Rexamen muestra.xlsx'
 conn = pyodbc.connect(r'Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=G:\Mi unidad\Investigación\Base Central de Periodística\bcp.accdb;')
 os.chdir(mypath)
 
