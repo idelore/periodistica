@@ -6,36 +6,21 @@ Created on Wed Apr 22 20:54:01 2020
 @author: Ignacio de Lorenzo
 """
 
-from keras.layers import *
-from keras.models import Sequential
-from keras.layers import Flatten, Dense
-from keras.models import Model
-from keras.models import Sequential
-from keras.layers import Embedding
-from keras import layers
-from keras.layers import Concatenate, Dense, LSTM, Input, concatenate
+
 import pandas as pd
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.text import hashing_trick
-from keras.preprocessing.text import text_to_word_sequence
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.model_selection import train_test_split
 import pyodbc 
-from tensorflow.keras.optimizers import Adam
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
 import os
 import numpy as np
-from nltk.corpus import stopwords
-from keras.datasets import imdb
-from keras import preprocessing
-from keras.models import Sequential
-from keras.layers import Flatten, Dense
-from sklearn.model_selection import train_test_split
 from nltk.stem.snowball import SnowballStemmer
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
-from sklearn.metrics import cohen_kappa_score
+from nltk.corpus import stopwords
+from keras import preprocessing
+from keras.layers import Concatenate, Dense, LSTM, Input, concatenate, Flatten
+from keras.layers import Average
+from keras.models import Model
+from keras.layers import Embedding
+from keras.preprocessing.text import Tokenizer
 
 
 mypath='G:\\Mi unidad\\Investigación\\2021\\ML\\Nueva versión\\'
@@ -93,7 +78,14 @@ def metricas(nombre, y_test, y_pred):
 
 """
 
-Carga de datos
+1-. CARGA DE DATOS
+
+
+Carga de datos de la base de datos, donde
+*** Tabla de libros: todos los datos bibliográficos disponibles.
+*** Uninvestigación: filtros de revistas para distintos proyectos.
+*** Unificategorias: etiquetas que permiten filtrar los artículos.
+
 
 """
 
@@ -122,7 +114,7 @@ et=et.rename(columns={"id":"id_etiquetas",
                       })
 
 
-#Cruzo las revista de la investigación original con la tabla de artículos
+#Para el entrenamiento, se emplearán las revistas originales de De Lorenzo, 2019
 
 print("Incluyo todos los artículos de las revistas originales")
 
@@ -140,8 +132,13 @@ dfnart=pd.merge(dfn,
                 left_on="id_articulo",
                 right_on="idlibro_etiquetas")
 
+"""
 
-#Eliminación de artículos que no son académicos, marcadas como categorías
+2-. FILTRADO DE LOS ARTÍCULOS
+
+"""
+
+#Primero, artículos académicos.
 
 outlist=[159,27,61,150,81,85,127,136,178,144,12,174,180,179]
 
@@ -151,8 +148,12 @@ eoutlist=et[et.categoría.isin(outlist)]["idlibro_etiquetas"]
 
 dfnartlimp=dfnart.copy()[~dfnart.id_articulo.isin(eoutlist)]
 
+#Artículos anteriores a 2012
 
 df=dfnartlimp[dfnartlimp["fecha de edición"]<=2012]
+
+
+#Se extraen las clases "Periodística y No Periodística"
 
 etper=et[(et["categoría"]==15)|(et["categoría"]==139)]
 
@@ -166,6 +167,12 @@ dfeti["class_periodistica"]=""
 dfeti.loc[dfeti.categoría_y == 15, 'class_periodistica'] = 1
 dfeti.loc[dfeti.categoría_y == 139, 'class_periodistica'] = 0
 dfeti=dfeti.dropna(subset=["anotaciones"])
+
+"""
+
+PROCESAMIENTO DE TEXTOS
+
+"""
 
 
 #Eliminación de las stopwords
@@ -186,7 +193,6 @@ dfeti["anotaciones"] = dfeti["anotaciones"] .str.replace('\d+', '',regex=True)
 dfeti['anotaciones'] = dfeti['anotaciones'].apply(stemizador)
 
 
-
 dfeti["título"] = dfeti["título"].str.lower()
 dfeti["título"] = dfeti["título"].str.replace('[^\w\s]', '',regex=True)
 dfeti["título"] = dfeti["título"].str.replace(pat, '',regex=True)
@@ -196,18 +202,13 @@ dfeti['título'] = dfeti['título'].apply(stemizador)
 
 ##############################################################################
 
-""" Fase del entrenamiento
+""" 
+
+ENTRENAMIENTO DEL ALGORITMO
 
 """
 
-
-
-print("Comienzo a hacer las redes neuronales en sí")
-
-
-##############################################################################
-###VOy a probar ambos
-##############################################################################
+# División en test y training
 
 
 train, test = train_test_split(dfeti, test_size=0.2)
@@ -223,6 +224,8 @@ sentencestesta = test["anotaciones"].values
 sentencestraint = train["título"].values
 sentencestestt = test["título"].values
 
+
+#Tokenización
 
 tokenizera = Tokenizer(num_words=nwordsa)
 tokenizera.fit_on_texts(sentencestraina)
@@ -246,6 +249,9 @@ x_testa = preprocessing.sequence.pad_sequences(x_testatok, maxlen=maxlena)
 x_traint = preprocessing.sequence.pad_sequences(x_trainttok, maxlen=maxlent)
 x_testt = preprocessing.sequence.pad_sequences(x_testttok, maxlen=maxlent)
 
+
+# Construcción de la red neuronal en sí, de títulos (modelt) y abstracts (modela)
+
 input_dima = x_traina.shape[1] 
 modela_in = Input(shape=(input_dima))
 modela_out=Embedding(1000, 50)(modela_in)
@@ -262,6 +268,9 @@ modelt_out=Dense(1, activation='sigmoid')(modelt_out)
 
 modelt = Model(modelt_in, modelt_out)
 
+
+#Combinación de ambas redes neuronales
+
 merged=Average()([modela_out,modelt_out])
 
 mergedd=Model([modela_in,modelt_in],merged)
@@ -271,15 +280,21 @@ mergedd.compile(optimizer='adam',
               metrics=['accuracy'])
 
 
+# Entrenamiento de la red neuronal
 
-print("-------------------Predicción sobre el test previo a 2012")
 
 mergedd.fit([x_traina, x_traint],
                  y=y,
                  batch_size=100, 
                  epochs=20,
                  validation_data=([x_testa, x_testt], yt),
-             verbose=False)
+             verbose=True)
+
+
+#Prueba sobre el training y test previo a 2012
+
+print("-------------------Predicción sobre el Test<2012")
+
 
 loss, accuracy = mergedd.evaluate([x_traina, x_traint], y, batch_size=100, verbose=False)
 print("Training Accuracy: {:.4f}".format(accuracy))
@@ -287,9 +302,8 @@ loss, accuracy = mergedd.evaluate([x_testa, x_testt], yt, batch_size=50, verbose
 print("Testing Accuracy:  {:.4f}".format(accuracy))
 
 
-##############################################################################
-#Predicción sobre el total
-##############################################################################
+###########Se realiza predicción sobre todo anterior a 2012
+
 
 sentencestesta = dfeti["anotaciones"].values
 sentencestestt = dfeti["título"].values
@@ -301,33 +315,6 @@ x_testt = preprocessing.sequence.pad_sequences(x_testttok, maxlen=maxlent)
 
 
 dfeti["prediccion"]=mergedd.predict([x_testa, x_testt])
-
-
-##############################################################################
-#Predicción sobre el test
-##############################################################################
-
-sentencestesta = test["anotaciones"].values
-sentencestestt = test["título"].values
-
-x_testatok = tokenizera.texts_to_sequences(sentencestesta)
-x_testttok = tokenizert.texts_to_sequences(sentencestestt)
-x_testa = preprocessing.sequence.pad_sequences(x_testatok, maxlen=maxlena)
-x_testt = preprocessing.sequence.pad_sequences(x_testttok, maxlen=maxlent)
-
-
-test["prediccion"]=mergedd.predict([x_testa, x_testt])
-print("-------------------Predicción sobre el test previo a 2012\n\n")
-
-y_pred=test.copy()[["prediccion"]]
-y_pred.loc[y_pred.prediccion > 0.5,"prediccion"] = 1
-y_pred.loc[y_pred.prediccion < 0.5,"prediccion"] = 0 
-
-print(classification_report(yt, y_pred["prediccion"].values))
-
-
-y_pred=mergedd.predict([x_testa, x_testt])
-print(metricas("Test previo, Anotaciones y títulos",yt,y_pred))
 
 
 ##############################################################################
@@ -397,28 +384,19 @@ print("-------------------Predicción real test 2012 \n\n")
 m12["prediccion"]=mergedd.predict([x_testa, x_testt])
 
 y_pred=m12.copy()[["prediccion"]]
-
-print(metricas("Test real, Anotaciones y Título",y,mergedd.predict([x_testa, x_testt])))
-
-
-
 y_pred.loc[y_pred.prediccion > 0.5,"prediccion"] = 1
 y_pred.loc[y_pred.prediccion < 0.5,"prediccion"] = 0 
 
 
-print(classification_report(y, y_pred["prediccion"].values))
+loss, accuracy = mergedd.evaluate([x_testa, x_testt], m12[["class_periodistica"]].astype(np.int64).values, batch_size=50, verbose=False)
+print("Test sobre Test>2012:  {:.4f}".format(accuracy))
 
 
-print(metricas("Predicción previo a 2012, con Título y Anotaciones",y,mergedd.predict([x_testa, x_testt])))
-
-
-
-m12.to_excel("prediccion redes neuronales.xlsx")
 
 ##############################################################################
 ##############################################################################
 
-#Aquí hago una predicción sobre el total de la muestra 
+#Predicción sobre 2012 en adelante, no sólo el test
 
 df12=dfnartlimp[dfnartlimp["fecha de edición"]>2012]
 
@@ -471,6 +449,6 @@ with pd.ExcelWriter("Predicción de Periodística.xlsx") as writer:
                     sheet_name='posdoce', 
                     index=False)
     m12.to_excel(writer, 
-                    sheet_name='real12', 
+                    sheet_name='Test12', 
                     index=False)
 
